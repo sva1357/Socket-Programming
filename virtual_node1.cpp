@@ -1,4 +1,7 @@
 #include <pthread.h>
+#include<vector>
+#include <netdb.h>      // gethostbyname(), struct hostent
+#include <unistd.h>   
 #include <sys/time.h> 
 #include <sys/select.h>
 #include <bits/stdc++.h>
@@ -78,10 +81,10 @@ void* sender_thread(void* arg){
             int len;
             char* msg;
             serialize_lsp(pkt, &len,&msg);
-            for(int j=0; j< args->neighbours->size(); j++){
+            for(size_t j=0; j< args->neighbours->size(); j++){
                 if((*(args->neighbours))[j].name==pkt->sender_name) continue;
                 struct neighbour *n=&((*(args->neighbours))[j]);
-                struct sockaddr_in dest_addr={0};
+                struct sockaddr_in dest_addr={};
                 dest_addr.sin_family=AF_INET;
                 dest_addr.sin_port=htons(n->port);
                 inet_pton(AF_INET,(const char*)n->ip,&dest_addr.sin_addr);
@@ -96,6 +99,58 @@ void* sender_thread(void* arg){
     }
     return NULL;
 }
+
+bool deserialize_lsp(const char* msg, int len, lsp_packet* pkt) {
+    if (msg == nullptr || pkt == nullptr || len < 9) {
+        return false;
+    }
+
+    const char* ptr = msg;
+    const char* end = msg + len;
+
+    pkt->sender_name = *ptr++;
+
+    uint32_t seq;
+    memcpy(&seq, ptr, 4);
+    pkt->seq_no = ntohl(seq);
+    ptr += 4;
+
+    uint32_t count;
+    memcpy(&count, ptr, 4);
+    count = ntohl(count);
+    ptr += 4;
+
+    if (count > static_cast<uint32_t>((end - ptr) / 11)) {
+        return false;
+    }
+
+    pkt->neighbours.clear();
+
+    for (uint32_t i = 0; i < count; i++) {
+        neighbour n{};
+
+        n.name = *ptr++;
+
+        memcpy(n.ip, ptr, 4);
+        ptr += 4;
+
+        uint16_t port;
+        memcpy(&port, ptr, 2);
+        n.port = ntohs(port);
+        ptr += 2;
+
+        uint32_t cost;
+        memcpy(&cost, ptr, 4);
+        n.cost = static_cast<int>(ntohl(cost));
+        ptr += 4;
+
+        pkt->neighbours.push_back(n);
+    }
+
+    // Reject packets containing unexpected trailing bytes.
+    return ptr == end;
+}
+
 void* receiver_thread(void* arg){
     struct arguments* args = (struct arguments*)arg;
 
@@ -175,7 +230,7 @@ void send_lsp_packet(struct lsp_packet* packet, int udpfd, vector<neighbour>& ne
     int len;
     char* msg;
     serialize_lsp(packet, &len, &msg);
-    for (int i = 0; i < neighbours.size(); i++) {
+    for (size_t i = 0; i < neighbours.size(); i++) {
 
         struct neighbour* n = &neighbours[i];
         if (n->name == packet->sender_name)
@@ -230,7 +285,7 @@ int main(int argc, char* argv[]){
         cerr<<"wrong usage\n";
         return 0;
     }
-    char mynode_name;
+    char mynode_name = 'A';
     char* oracle_ipaddr=argv[1];
     int oracle_port=atoi(argv[2]);
     int udp_port=atoi(argv[3]);
@@ -279,7 +334,7 @@ int main(int argc, char* argv[]){
     receive(tcpfd,neighbour_info,280);
     sleep(1);
     recover_neigh(neighbour_info, neighbours);
-    for(int i=0; i<neighbours.size(); i++){
+    for(size_t i=0; i<neighbours.size(); i++){
         cout<<"Neighbour "<<i+1<<"\n";
         cout<<"Node "<<neighbours[i].name<<": "<<neighbours[i].ip<<" Port= "<<neighbours[i].port<<" cost= "<<neighbours[i].cost<<endl;
     }
@@ -334,5 +389,5 @@ int main(int argc, char* argv[]){
 
 
 
-
+}
 }
